@@ -1,5 +1,6 @@
 mod address_check;
 mod auto_calibration;
+mod cca_mode;
 mod fifo_threshold;
 mod gdo_cfg;
 mod length_config;
@@ -11,6 +12,7 @@ mod sync_check;
 
 pub use self::address_check::*;
 pub use self::auto_calibration::*;
+pub use self::cca_mode::*;
 pub use self::fifo_threshold::*;
 pub use self::gdo_cfg::*;
 pub use self::length_config::*;

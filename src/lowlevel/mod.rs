@@ -71,6 +71,27 @@ where
         Ok(())
     }
 
+    pub fn write_fifo(
+        &mut self,
+        addr: &mut u8,
+        len: &mut u8,
+        buf: &mut [u8],
+    ) -> Result<(), Error<SpiE, GpioE>> {
+        // check it
+        let mut buffer = [Command::FIFO.addr() | 0x40, 0, 0];
+
+        self.cs.set_low().map_err(Error::Gpio)?;
+        self.spi.write(&mut buffer).map_err(Error::Spi)?;
+        self.spi.write(buf).map_err(Error::Spi)?;
+        self.cs.set_high().map_err(Error::Gpio)?;
+
+        // to be checked
+        *len = buffer[1];
+        *addr = buffer[2];
+
+        Ok(())
+    }
+
     pub fn write_strobe(&mut self, com: Command) -> Result<(), Error<SpiE, GpioE>> {
         self.cs.set_low().map_err(Error::Gpio)?;
         self.spi.write(&[com.addr()]).map_err(Error::Spi)?;

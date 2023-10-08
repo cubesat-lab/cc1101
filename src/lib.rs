@@ -17,6 +17,8 @@ use rssi::rssi_to_dbm;
 /// CC1101 errors.
 #[derive(Debug)]
 pub enum Error<SpiE, GpioE> {
+    /// The TX FIFO buffer underflowed, too large packet for configured packet length.
+    TxUnderflow,
     /// The RX FIFO buffer overflowed, too small buffer for configured packet length.
     RxOverflow,
     /// Corrupt packet received with invalid CRC.
@@ -70,6 +72,58 @@ where
         self.0
             .modify_register(Config::MDMCFG4, |r| MDMCFG4(r).modify().drate_e(exponent).bits())?;
         self.0.write_register(Config::MDMCFG3, MDMCFG3::default().drate_m(mantissa).bits())?;
+        Ok(())
+    }
+
+    pub fn enable_fec(&mut self, enable: bool) -> Result<(), Error<SpiE, GpioE>> {
+        self.0.modify_register(Config::MDMCFG1, |r| {
+            MDMCFG1(r).modify().fec_en(enable as u8).bits()
+        })?;
+        Ok(())
+    }
+
+    pub fn set_cca_mode(&mut self, cca_mode: CcaMode) -> Result<(), Error<SpiE, GpioE>> {
+        let mode = match cca_mode {
+            CcaMode::AlwaysClear => CcaModeConfig::ALWAYS,
+            CcaMode::ClearBelowThreshold => CcaModeConfig::RSSI_BELOW_THR,
+            CcaMode::ClearWhenReceivingPacket => CcaModeConfig::RCV_PACKET,
+            CcaMode::ClearBelowThresholdUnlessReceivingPacket => {
+                CcaModeConfig::RSSI_BELOW_THR_UNLESS_RCV_PACKET
+            }
+        };
+
+        self.0
+            .modify_register(Config::MCSM1, |r| MCSM1(r).modify().cca_mode(mode.value()).bits())?;
+
+        Ok(())
+    }
+
+    pub fn set_num_preamble(
+        &mut self,
+        num_preamble: NumPreambleBytes,
+    ) -> Result<(), Error<SpiE, GpioE>> {
+        let preamble_setting = match num_preamble {
+            NumPreambleBytes::Two => NumPreamble::N_2,
+            NumPreambleBytes::Three => NumPreamble::N_3,
+            NumPreambleBytes::Four => NumPreamble::N_4,
+            NumPreambleBytes::Six => NumPreamble::N_6,
+            NumPreambleBytes::Eight => NumPreamble::N_8,
+            NumPreambleBytes::Twelve => NumPreamble::N_12,
+            NumPreambleBytes::Sixteen => NumPreamble::N_16,
+            NumPreambleBytes::TwentyFour => NumPreamble::N_24,
+        };
+
+        self.0.write_register(
+            Config::MDMCFG1,
+            MDMCFG1::default().num_preamble(preamble_setting as u8).bits(),
+        )?;
+        Ok(())
+    }
+
+    pub fn crc_enable(&mut self, enable: bool) -> Result<(), Error<SpiE, GpioE>> {
+        self.0.modify_register(Config::PKTCTRL0, |r| {
+            PKTCTRL0(r).modify().crc_en(enable as u8).bits()
+        })?;
         Ok(())
     }
 
@@ -255,6 +309,10 @@ where
                 let lqi = self.0.read_register(Status::LQI)?;
                 self.await_machine_state(MachineState::IDLE)?;
                 self.0.write_strobe(Command::SFRX)?;
+
+                // Go back to Rx mode
+                self.0.write_strobe(Command::SRX)?;
+
                 if (lqi >> 7) != 1 {
                     Err(Error::CrcMismatch)
                 } else {
@@ -263,9 +321,25 @@ where
             }
             Err(err) => {
                 self.0.write_strobe(Command::SFRX)?;
+
+                // Go back to Rx mode
+                self.0.write_strobe(Command::SRX)?;
+
                 Err(err)
             }
         }
+    }
+
+    pub fn transmit(&mut self, addr: &mut u8, buf: &mut [u8]) -> Result<(), Error<SpiE, GpioE>> {
+        // Check if the Tx fifo is empty and handle the undeflow condition
+        // stfx command strobe
+        let mut tx_len: u8 = buf.len() as u8;
+        self.0.write_register(Command::FIFO, tx_len)?;
+        self.0.write_fifo(addr, &mut tx_len, buf)?;
+        self.0.write_strobe(Command::STX)?;
+        self.await_machine_state(MachineState::IDLE)?;
+        self.0.write_strobe(Command::SFTX)?;
+        Ok(())
     }
 }
 
@@ -291,6 +365,38 @@ pub enum PacketLength {
     Variable(u8),
     /// Infinite packet length, streaming mode.
     Infinite,
+}
+
+/// Number of preamble bytes to be transmitted.
+pub enum NumPreambleBytes {
+    // 2 preamble bytes
+    Two,
+    // 3 preamble bytes
+    Three,
+    // 4 preamble bytes
+    Four,
+    // 6 preamble bytes
+    Six,
+    // 8 preamble bytes
+    Eight,
+    // 12 preamble bytes
+    Twelve,
+    // 16 preamble bytes
+    Sixteen,
+    // 24 preamble bytes
+    TwentyFour,
+}
+
+/// CCA mode configuration.
+pub enum CcaMode {
+    /// Always clear channel assessment.
+    AlwaysClear,
+    /// Clear channel assessment when RSSI is below threshold.
+    ClearBelowThreshold,
+    /// Clear channel assessment unless receiving packet.
+    ClearWhenReceivingPacket,
+    /// Clear channel assessment when RSSI is below threshold unless receiving packet.
+    ClearBelowThresholdUnlessReceivingPacket,
 }
 
 /// Address check configuration.
