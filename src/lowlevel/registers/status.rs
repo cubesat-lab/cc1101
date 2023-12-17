@@ -1,5 +1,6 @@
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy)]
+
 pub enum Status {
     /// Chip part number
     PARTNUM = 0x30,
@@ -32,8 +33,12 @@ pub enum Status {
 }
 
 impl Status {
-    pub fn addr(&self) -> u8 {
-        *self as u8
+    pub fn addr(
+        &self,
+        access: crate::lowlevel::access::Access,
+        mode: crate::lowlevel::access::Mode,
+    ) -> u8 {
+        (access as u8) | (mode as u8) | (*self as u8)
     }
 }
 
@@ -54,7 +59,7 @@ register!(VERSION, 0b0001_0100, u8, {
 });
 
 register!(FREQEST, 0b0000_0000, u8, {
-    #[doc = "The estimated frequency offset (2’s complement) of the carrier"]
+    #[doc = "The estimated frequency offset (2's complement) of the carrier"]
     freqoff_est @ 0..7,
 });
 

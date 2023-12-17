@@ -1,4 +1,5 @@
 #[derive(Clone, Copy)]
+
 pub enum Config {
     /// GDO2 output pin configuration
     IOCFG2 = 0x00,
@@ -97,8 +98,12 @@ pub enum Config {
 }
 
 impl Config {
-    pub fn addr(&self) -> u8 {
-        *self as u8
+    pub fn addr(
+        &self,
+        access: crate::lowlevel::access::Access,
+        mode: crate::lowlevel::access::Mode,
+    ) -> u8 {
+        (access as u8) | (mode as u8) | (*self as u8)
     }
 }
 

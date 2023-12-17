@@ -14,6 +14,7 @@ pub mod types;
 use self::registers::*;
 
 pub const FXOSC: u64 = 26_000_000;
+const BLANK_BYTE: u8 = 0;
 
 pub struct Cc1101<SPI, CS> {
     pub(crate) spi: SPI,
@@ -35,8 +36,8 @@ where
 {
     pub fn new(spi: SPI, cs: CS) -> Result<Self, Error<SpiE, GpioE>> {
         let cc1101 = Cc1101 {
-            spi: spi,
-            cs: cs,
+            spi,
+            cs,
         };
         Ok(cc1101)
     }
@@ -45,11 +46,16 @@ where
     where
         R: Into<Register>,
     {
+        let reg_addr = reg.into().raddr(access::Mode::Single);
+        let mut buffer = [reg_addr, BLANK_BYTE];
+
         self.cs.set_low().map_err(Error::Gpio)?;
-        let mut buffer = [reg.into().raddr(), 0u8];
         self.spi.transfer(&mut buffer).map_err(Error::Spi)?;
         self.cs.set_high().map_err(Error::Gpio)?;
-        Ok(buffer[1])
+
+        let _status = buffer[0];
+        let data = buffer[1];
+        Ok(data)
     }
 
     pub fn read_fifo(
@@ -58,13 +64,19 @@ where
         len: &mut u8,
         buf: &mut [u8],
     ) -> Result<(), Error<SpiE, GpioE>> {
-        let mut buffer = [Command::FIFO.addr() | 0xC0, 0, 0];
+        // TODO Check this method
+        let mut buffer = [
+            MultiByte::FIFO.addr(access::Access::Read, access::Mode::Burst),
+            BLANK_BYTE,
+            BLANK_BYTE,
+        ];
 
         self.cs.set_low().map_err(Error::Gpio)?;
         self.spi.transfer(&mut buffer).map_err(Error::Spi)?;
         self.spi.transfer(buf).map_err(Error::Spi)?;
         self.cs.set_high().map_err(Error::Gpio)?;
 
+        let _status = buffer[0];
         *len = buffer[1];
         *addr = buffer[2];
 
@@ -77,25 +89,32 @@ where
         len: &mut u8,
         buf: &mut [u8],
     ) -> Result<(), Error<SpiE, GpioE>> {
-        // check it
-        let mut buffer = [Command::FIFO.addr() | 0x40, 0, 0];
+        // TODO Check this method
+        let mut buffer = [
+            MultiByte::FIFO.addr(access::Access::Write, access::Mode::Burst),
+            BLANK_BYTE,
+            BLANK_BYTE,
+        ];
 
         self.cs.set_low().map_err(Error::Gpio)?;
         self.spi.write(&mut buffer).map_err(Error::Spi)?;
         self.spi.write(buf).map_err(Error::Spi)?;
         self.cs.set_high().map_err(Error::Gpio)?;
 
-        // to be checked
+        // TODO to be checked
         *len = buffer[1];
         *addr = buffer[2];
 
         Ok(())
     }
 
-    pub fn write_strobe(&mut self, com: Command) -> Result<(), Error<SpiE, GpioE>> {
+    pub fn write_cmd_strobe(&mut self, cmd: Command) -> Result<(), Error<SpiE, GpioE>> {
+        let cmd_addr = cmd.addr(access::Access::Write, access::Mode::Single);
+
         self.cs.set_low().map_err(Error::Gpio)?;
-        self.spi.write(&[com.addr()]).map_err(Error::Spi)?;
+        self.spi.write(&[cmd_addr]).map_err(Error::Spi)?;
         self.cs.set_high().map_err(Error::Gpio)?;
+
         Ok(())
     }
 
@@ -103,9 +122,12 @@ where
     where
         R: Into<Register>,
     {
+        let reg_addr = reg.into().waddr(access::Mode::Single);
+
         self.cs.set_low().map_err(Error::Gpio)?;
-        self.spi.write(&mut [reg.into().waddr(), byte]).map_err(Error::Spi)?;
+        self.spi.write(&mut [reg_addr, byte]).map_err(Error::Spi)?;
         self.cs.set_high().map_err(Error::Gpio)?;
+
         Ok(())
     }
 
@@ -116,6 +138,7 @@ where
     {
         let r = self.read_register(reg)?;
         self.write_register(reg, f(r))?;
+
         Ok(())
     }
 }

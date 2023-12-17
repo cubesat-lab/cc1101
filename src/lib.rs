@@ -225,16 +225,16 @@ where
         let target = match radio_mode {
             RadioMode::Receive => {
                 self.set_radio_mode(RadioMode::Idle)?;
-                self.0.write_strobe(Command::SRX)?;
+                self.0.write_cmd_strobe(Command::SRX)?;
                 MachineState::RX
             }
             RadioMode::Transmit => {
                 self.set_radio_mode(RadioMode::Idle)?;
-                self.0.write_strobe(Command::STX)?;
+                self.0.write_cmd_strobe(Command::STX)?;
                 MachineState::TX
             }
             RadioMode::Idle => {
-                self.0.write_strobe(Command::SIDLE)?;
+                self.0.write_cmd_strobe(Command::SIDLE)?;
                 MachineState::IDLE
             }
         };
@@ -244,7 +244,7 @@ where
     /// Configure some default settings, to be removed in the future.
     #[cfg_attr(rustfmt, rustfmt_skip)]
     pub fn set_defaults(&mut self) -> Result<(), Error<SpiE, GpioE>> {
-        self.0.write_strobe(Command::SRES)?;
+        self.0.write_cmd_strobe(Command::SRES)?;
 
         self.0.write_register(Config::PKTCTRL0, PKTCTRL0::default()
             .white_data(0).bits()
@@ -308,10 +308,10 @@ where
                 self.0.read_fifo(addr, &mut length, buf)?;
                 let lqi = self.0.read_register(Status::LQI)?;
                 self.await_machine_state(MachineState::IDLE)?;
-                self.0.write_strobe(Command::SFRX)?;
+                self.0.write_cmd_strobe(Command::SFRX)?;
 
                 // Go back to Rx mode
-                self.0.write_strobe(Command::SRX)?;
+                self.0.write_cmd_strobe(Command::SRX)?;
 
                 if (lqi >> 7) != 1 {
                     Err(Error::CrcMismatch)
@@ -320,10 +320,10 @@ where
                 }
             }
             Err(err) => {
-                self.0.write_strobe(Command::SFRX)?;
+                self.0.write_cmd_strobe(Command::SFRX)?;
 
                 // Go back to Rx mode
-                self.0.write_strobe(Command::SRX)?;
+                self.0.write_cmd_strobe(Command::SRX)?;
 
                 Err(err)
             }
@@ -334,11 +334,11 @@ where
         // Check if the Tx fifo is empty and handle the undeflow condition
         // stfx command strobe
         let mut tx_len: u8 = buf.len() as u8;
-        self.0.write_register(Command::FIFO, tx_len)?;
+        self.0.write_register(MultiByte::FIFO, tx_len)?;
         self.0.write_fifo(addr, &mut tx_len, buf)?;
-        self.0.write_strobe(Command::STX)?;
+        self.0.write_cmd_strobe(Command::STX)?;
         self.await_machine_state(MachineState::IDLE)?;
-        self.0.write_strobe(Command::SFTX)?;
+        self.0.write_cmd_strobe(Command::SFTX)?;
         Ok(())
     }
 }

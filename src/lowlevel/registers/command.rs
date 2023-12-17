@@ -1,5 +1,6 @@
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy)]
+
 pub enum Command {
     /// Reset chip
     SRES = 0x30,
@@ -16,7 +17,7 @@ pub enum Command {
     /// Exit RX / TX
     SIDLE = 0x36,
     /// AFC adjustment of freq synthesizer
-    SAFC = 0x37,
+    // SAFC = 0x37, // NOTE: This register was eliminated in the latest datasheet revision (SWRS061I - 2013.11.05)
     /// Start automatic RX polling sequence
     SWOR = 0x38,
     /// Enter pwr down mode when CSn goes hi
@@ -29,15 +30,15 @@ pub enum Command {
     SWORRST = 0x3C,
     /// No operation.
     SNOP = 0x3D,
-    /// Power Amplifier Table
-    PATABLE = 0x3E,
-    /// FIFO Access
-    FIFO = 0x3F,
 }
 
 impl Command {
-    pub fn addr(&self) -> u8 {
-        *self as u8
+    pub fn addr(
+        &self,
+        access: crate::lowlevel::access::Access,
+        mode: crate::lowlevel::access::Mode,
+    ) -> u8 {
+        (access as u8) | (mode as u8) | (*self as u8)
     }
 }
 
