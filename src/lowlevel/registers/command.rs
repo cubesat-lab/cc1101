@@ -16,7 +16,7 @@ pub enum Command {
     STX = 0x35,
     /// Exit RX / TX
     SIDLE = 0x36,
-    /// AFC adjustment of freq synthesizer
+    // /// AFC adjustment of freq synthesizer
     // SAFC = 0x37, // NOTE: This register was eliminated in the latest datasheet revision (SWRS061I - 2013.11.05)
     /// Start automatic RX polling sequence
     SWOR = 0x38,
