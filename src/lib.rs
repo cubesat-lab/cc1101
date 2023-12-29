@@ -7,13 +7,9 @@ use hal::digital::v2::OutputPin;
 
 #[macro_use]
 pub mod lowlevel;
-mod rssi;
 mod types;
 
-use lowlevel::convert::*;
-use lowlevel::registers::*;
-use lowlevel::types::*;
-use rssi::rssi_to_dbm;
+use lowlevel::{convert::*, registers::*, types::*};
 pub use types::*;
 
 /// CC1101 errors.
@@ -52,6 +48,60 @@ where
         Ok(Cc1101(lowlevel::Cc1101::new(spi, cs)?))
     }
 
+    // Commands
+    pub fn reset_chip(&mut self) -> Result<(), Error<SpiE, GpioE>> {
+        Ok(self.0.write_cmd_strobe(Command::SRES)?)
+    }
+
+    pub fn enable_and_cal_freq_synth(&mut self) -> Result<(), Error<SpiE, GpioE>> {
+        Ok(self.0.write_cmd_strobe(Command::SFSTXON)?)
+    }
+
+    pub fn disable_xosc(&mut self) -> Result<(), Error<SpiE, GpioE>> {
+        Ok(self.0.write_cmd_strobe(Command::SXOFF)?)
+    }
+
+    pub fn cal_freq_synth_and_disable(&mut self) -> Result<(), Error<SpiE, GpioE>> {
+        Ok(self.0.write_cmd_strobe(Command::SCAL)?)
+    }
+
+    pub fn enable_rx(&mut self) -> Result<(), Error<SpiE, GpioE>> {
+        Ok(self.0.write_cmd_strobe(Command::SRX)?)
+    }
+
+    pub fn enable_tx(&mut self) -> Result<(), Error<SpiE, GpioE>> {
+        Ok(self.0.write_cmd_strobe(Command::STX)?)
+    }
+
+    pub fn exit_rx_tx(&mut self) -> Result<(), Error<SpiE, GpioE>> {
+        Ok(self.0.write_cmd_strobe(Command::SIDLE)?)
+    }
+
+    pub fn start_wake_on_radio(&mut self) -> Result<(), Error<SpiE, GpioE>> {
+        Ok(self.0.write_cmd_strobe(Command::SWOR)?)
+    }
+
+    pub fn enter_power_down_mode(&mut self) -> Result<(), Error<SpiE, GpioE>> {
+        Ok(self.0.write_cmd_strobe(Command::SPWD)?)
+    }
+
+    pub fn flush_rx_fifo(&mut self) -> Result<(), Error<SpiE, GpioE>> {
+        Ok(self.0.write_cmd_strobe(Command::SFRX)?)
+    }
+
+    pub fn flush_tx_fifo(&mut self) -> Result<(), Error<SpiE, GpioE>> {
+        Ok(self.0.write_cmd_strobe(Command::SFTX)?)
+    }
+
+    pub fn reset_rtc_to_event1(&mut self) -> Result<(), Error<SpiE, GpioE>> {
+        Ok(self.0.write_cmd_strobe(Command::SWORRST)?)
+    }
+
+    pub fn nop(&mut self) -> Result<(), Error<SpiE, GpioE>> {
+        Ok(self.0.write_cmd_strobe(Command::SNOP)?)
+    }
+
+    // Configurations
     pub fn set_frequency(&mut self, hz: u64) -> Result<(), Error<SpiE, GpioE>> {
         let (freq0, freq1, freq2) = from_frequency(hz);
         self.0.write_register(Config::FREQ0, freq0)?;
@@ -145,7 +195,7 @@ where
 
     /// Received Signal Strength Indicator is an estimate of the signal power level in the chosen channel.
     pub fn get_rssi_dbm(&mut self) -> Result<i16, Error<SpiE, GpioE>> {
-        Ok(rssi_to_dbm(self.0.read_register(Status::RSSI)?))
+        Ok(from_rssi_to_rssi_dbm(self.0.read_register(Status::RSSI)?))
     }
 
     /// The Link Quality Indicator metric of the current quality of the received signal.
@@ -227,16 +277,16 @@ where
         let target = match radio_mode {
             RadioMode::Receive => {
                 self.set_radio_mode(RadioMode::Idle)?;
-                self.0.write_cmd_strobe(Command::SRX)?;
+                self.enable_rx()?;
                 MachineState::RX
             }
             RadioMode::Transmit => {
                 self.set_radio_mode(RadioMode::Idle)?;
-                self.0.write_cmd_strobe(Command::STX)?;
+                self.enable_tx()?;
                 MachineState::TX
             }
             RadioMode::Idle => {
-                self.0.write_cmd_strobe(Command::SIDLE)?;
+                self.exit_rx_tx()?;
                 MachineState::IDLE
             }
         };
@@ -246,7 +296,7 @@ where
     /// Configure some default settings, to be removed in the future.
     #[cfg_attr(rustfmt, rustfmt_skip)]
     pub fn set_defaults(&mut self) -> Result<(), Error<SpiE, GpioE>> {
-        self.0.write_cmd_strobe(Command::SRES)?;
+        self.reset_chip()?;
 
         self.0.write_register(Config::PKTCTRL0, PKTCTRL0::default()
             .white_data(0).bits()
@@ -271,6 +321,7 @@ where
         Ok(())
     }
 
+    // Machine State
     pub fn read_machine_state(&mut self) -> Result<MachineState, Error<SpiE, GpioE>> {
         let marcstate = MARCSTATE(self.0.read_register(Status::MARCSTATE)?);
         Ok(MachineState::from_value(marcstate.marc_state()))
@@ -318,10 +369,10 @@ where
                 self.0.read_fifo(addr, &mut length, buf)?;
                 let lqi = self.0.read_register(Status::LQI)?;
                 self.await_machine_state(MachineState::IDLE)?;
-                self.0.write_cmd_strobe(Command::SFRX)?;
+                self.flush_rx_fifo()?;
 
                 // Go back to Rx mode
-                self.0.write_cmd_strobe(Command::SRX)?;
+                // self.enable_rx()?;  // TODO: Check the logic
 
                 if (lqi >> 7) != 1 {
                     Err(Error::CrcMismatch)
@@ -330,10 +381,10 @@ where
                 }
             }
             Err(err) => {
-                self.0.write_cmd_strobe(Command::SFRX)?;
+                self.flush_rx_fifo()?;
 
                 // Go back to Rx mode
-                self.0.write_cmd_strobe(Command::SRX)?;
+                // self.enable_rx()?;  // TODO: Check the logic
 
                 Err(err)
             }
@@ -346,9 +397,9 @@ where
         let mut tx_len: u8 = buf.len() as u8;
         self.0.write_register(MultiByte::FIFO, tx_len)?;
         self.0.write_fifo(addr, &mut tx_len, buf)?;
-        self.0.write_cmd_strobe(Command::STX)?;
+        self.enable_tx()?;
         self.await_machine_state(MachineState::IDLE)?;
-        self.0.write_cmd_strobe(Command::SFTX)?;
+        self.flush_tx_fifo()?;
         Ok(())
     }
 }

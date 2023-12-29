@@ -1,5 +1,7 @@
 use crate::lowlevel::FXOSC;
 
+const RSSI_OFFSET: i16 = 74; // Table 31: Typical RSSI_offset Values
+
 pub const fn from_frequency(hz: u64) -> (u8, u8, u8) {
     let freq = hz * 1u64.rotate_left(16) / FXOSC;
     let freq0 = (freq & 0xff) as u8;
@@ -26,6 +28,16 @@ pub fn from_chanbw(v: u64) -> (u8, u8) {
     let exponent = 64 - (FXOSC / (8 * 4 * v)).leading_zeros() - 1;
     let mantissa = FXOSC / (v * 8 * 2u64.pow(exponent)) - 4;
     (mantissa as u8 & 0x3, exponent as u8 & 0x3)
+}
+
+pub fn from_rssi_to_rssi_dbm(rssi: u8) -> i16 {
+    let rssi = rssi as i16;
+    // According to spec 17.3
+    if rssi < 128 {
+        rssi / 2 - RSSI_OFFSET
+    } else {
+        (rssi - 256) / 2 - RSSI_OFFSET
+    }
 }
 
 #[cfg(test)]
