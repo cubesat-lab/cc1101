@@ -84,3 +84,33 @@ pub enum SyncMode {
     /// Match 16 of 16 bits of given sync word.
     MatchFull(u16),
 }
+
+/// Command Strobes.
+pub enum CommandStrobe {
+    /// SRES
+    ResetChip,
+    /// SFSTXON
+    EnableAndCalFreqSynth,
+    /// SXOFF
+    TurnOffXosc,
+    /// SCAL
+    CalFreqSynthAndTurnOff,
+    /// SRX
+    EnableRx,
+    /// STX
+    EnableTx,
+    /// SIDLE
+    ExitRxTx,
+    /// SWOR
+    StartWakeOnRadio,
+    /// SPWD
+    EnterPowerDownMode,
+    /// SFRX
+    FlushRxFifoBuffer,
+    /// SFTX
+    FlushTxFifoBuffer,
+    /// SWORRST
+    ResetRtcToEvent1,
+    /// SNOP
+    NoOperation,
+}

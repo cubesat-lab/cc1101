@@ -2,11 +2,13 @@ mod command;
 mod config;
 mod multi_byte;
 mod status;
+mod status_byte;
 
 pub use self::command::*;
 pub use self::config::*;
 pub use self::multi_byte::*;
 pub use self::status::*;
+pub use self::status_byte::*;
 
 use crate::lowlevel::access;
 

@@ -1,6 +1,5 @@
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy)]
-
 pub enum Command {
     /// Reset chip.
     SRES = 0x30,

@@ -4,9 +4,9 @@ use hal::digital::v2::OutputPin;
 
 #[macro_use]
 mod macros;
-mod access;
 mod traits;
 
+pub mod access;
 pub mod convert;
 pub mod registers;
 pub mod types;
@@ -19,8 +19,9 @@ const BLANK_BYTE: u8 = 0;
 pub struct Cc1101<SPI, CS> {
     pub(crate) spi: SPI,
     pub(crate) cs: CS,
-    //    gdo0: GDO0,
-    //    gdo2: GDO2,
+    pub status: StatusByte,
+    // gdo0: GDO0,
+    // gdo2: GDO2,
 }
 
 #[derive(Debug)]
@@ -38,6 +39,7 @@ where
         let cc1101 = Cc1101 {
             spi,
             cs,
+            status: StatusByte::default(),
         };
         Ok(cc1101)
     }
@@ -53,68 +55,35 @@ where
         self.spi.transfer(&mut buffer).map_err(Error::Spi)?;
         self.cs.set_high().map_err(Error::Gpio)?;
 
-        let _status = buffer[0];
-        let data = buffer[1];
-        Ok(data)
+        self.status = StatusByte::from(buffer[0]);
+        Ok(buffer[1])
     }
 
-    pub fn read_fifo(
+    pub fn access_fifo(
         &mut self,
-        addr: &mut u8,
-        len: &mut u8,
-        buf: &mut [u8],
+        access: access::Access,
+        data: &mut [u8],
     ) -> Result<(), Error<SpiE, GpioE>> {
-        // TODO Check this method
-        let mut buffer = [
-            MultiByte::FIFO.addr(access::Access::Read, access::Mode::Burst),
-            BLANK_BYTE,
-            BLANK_BYTE,
-        ];
+        let mut buffer = [MultiByte::FIFO.addr(access, access::Mode::Burst)];
 
         self.cs.set_low().map_err(Error::Gpio)?;
         self.spi.transfer(&mut buffer).map_err(Error::Spi)?;
-        self.spi.transfer(buf).map_err(Error::Spi)?;
+        self.spi.transfer(data).map_err(Error::Spi)?;
         self.cs.set_high().map_err(Error::Gpio)?;
 
-        let _status = buffer[0];
-        *len = buffer[1];
-        *addr = buffer[2];
-
-        Ok(())
-    }
-
-    pub fn write_fifo(
-        &mut self,
-        addr: &mut u8,
-        len: &mut u8,
-        buf: &mut [u8],
-    ) -> Result<(), Error<SpiE, GpioE>> {
-        // TODO Check this method
-        let mut buffer = [
-            MultiByte::FIFO.addr(access::Access::Write, access::Mode::Burst),
-            BLANK_BYTE,
-            BLANK_BYTE,
-        ];
-
-        self.cs.set_low().map_err(Error::Gpio)?;
-        self.spi.write(&mut buffer).map_err(Error::Spi)?;
-        self.spi.write(buf).map_err(Error::Spi)?;
-        self.cs.set_high().map_err(Error::Gpio)?;
-
-        // TODO to be checked
-        *len = buffer[1];
-        *addr = buffer[2];
-
+        self.status = StatusByte::from(buffer[0]);
         Ok(())
     }
 
     pub fn write_cmd_strobe(&mut self, cmd: Command) -> Result<(), Error<SpiE, GpioE>> {
         let cmd_addr = cmd.addr(access::Access::Write, access::Mode::Single);
+        let mut buffer = [cmd_addr];
 
         self.cs.set_low().map_err(Error::Gpio)?;
-        self.spi.write(&[cmd_addr]).map_err(Error::Spi)?;
+        self.spi.transfer(&mut buffer).map_err(Error::Spi)?;
         self.cs.set_high().map_err(Error::Gpio)?;
 
+        self.status = StatusByte::from(buffer[0]);
         Ok(())
     }
 
@@ -123,11 +92,13 @@ where
         R: Into<Register>,
     {
         let reg_addr = reg.into().waddr(access::Mode::Single);
+        let mut buffer = [reg_addr, byte];
 
         self.cs.set_low().map_err(Error::Gpio)?;
-        self.spi.write(&mut [reg_addr, byte]).map_err(Error::Spi)?;
+        self.spi.transfer(&mut buffer).map_err(Error::Spi)?;
         self.cs.set_high().map_err(Error::Gpio)?;
 
+        self.status = StatusByte::from(buffer[0]);
         Ok(())
     }
 

@@ -27,37 +27,42 @@ pub enum MachineState {
     TXFIFO_UNDERFLOW = 0x16,
 }
 
+/// Machine State Error (Invalid State). Refer to the CC1101 datasheet: "10.3 SPI Read"
+pub enum MachineStateError {
+    InvalidState(u8),
+}
+
 impl MachineState {
     pub fn value(&self) -> u8 {
         *self as u8
     }
 
-    pub fn from_value(value: u8) -> Self {
+    pub fn from_value(value: u8) -> Result<Self, MachineStateError> {
         match value {
-            0x00 => MachineState::SLEEP,
-            0x01 => MachineState::IDLE,
-            0x02 => MachineState::XOFF,
-            0x03 => MachineState::VCOON_MC,
-            0x04 => MachineState::REGON_MC,
-            0x05 => MachineState::MANCAL,
-            0x06 => MachineState::VCOON,
-            0x07 => MachineState::REGON,
-            0x08 => MachineState::STARTCAL,
-            0x09 => MachineState::BWBOOST,
-            0x0A => MachineState::FS_LOCK,
-            0x0B => MachineState::IFADCON,
-            0x0C => MachineState::ENDCAL,
-            0x0D => MachineState::RX,
-            0x0E => MachineState::RX_END,
-            0x0F => MachineState::RX_RST,
-            0x10 => MachineState::TXRX_SWITCH,
-            0x11 => MachineState::RXFIFO_OVERFLOW,
-            0x12 => MachineState::FSTXON,
-            0x13 => MachineState::TX,
-            0x14 => MachineState::TX_END,
-            0x15 => MachineState::RXTX_SWITCH,
-            0x16 => MachineState::TXFIFO_UNDERFLOW,
-            _ => panic!("Unknown value: {}", value),
+            0x00 => Ok(MachineState::SLEEP),
+            0x01 => Ok(MachineState::IDLE),
+            0x02 => Ok(MachineState::XOFF),
+            0x03 => Ok(MachineState::VCOON_MC),
+            0x04 => Ok(MachineState::REGON_MC),
+            0x05 => Ok(MachineState::MANCAL),
+            0x06 => Ok(MachineState::VCOON),
+            0x07 => Ok(MachineState::REGON),
+            0x08 => Ok(MachineState::STARTCAL),
+            0x09 => Ok(MachineState::BWBOOST),
+            0x0A => Ok(MachineState::FS_LOCK),
+            0x0B => Ok(MachineState::IFADCON),
+            0x0C => Ok(MachineState::ENDCAL),
+            0x0D => Ok(MachineState::RX),
+            0x0E => Ok(MachineState::RX_END),
+            0x0F => Ok(MachineState::RX_RST),
+            0x10 => Ok(MachineState::TXRX_SWITCH),
+            0x11 => Ok(MachineState::RXFIFO_OVERFLOW),
+            0x12 => Ok(MachineState::FSTXON),
+            0x13 => Ok(MachineState::TX),
+            0x14 => Ok(MachineState::TX_END),
+            0x15 => Ok(MachineState::RXTX_SWITCH),
+            0x16 => Ok(MachineState::TXFIFO_UNDERFLOW),
+            _ => Err(MachineStateError::InvalidState(value)),
         }
     }
 }

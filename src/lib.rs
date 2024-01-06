@@ -9,7 +9,8 @@ use hal::digital::v2::OutputPin;
 pub mod lowlevel;
 mod types;
 
-use lowlevel::{convert::*, registers::*, types::*};
+pub use lowlevel::types::{MachineState, MachineStateError};
+use lowlevel::{access::*, convert::*, registers::*, types::*};
 pub use types::*;
 
 /// CC1101 errors.
@@ -21,10 +22,20 @@ pub enum Error<SpiE, GpioE> {
     RxOverflow,
     /// Corrupt packet received with invalid CRC.
     CrcMismatch,
+    /// Invalid state read from MARCSTATE register
+    InvalidState(u8),
     /// Platform-dependent SPI-errors, such as IO errors.
     Spi(SpiE),
     /// Platform-dependent GPIO-errors, such as IO errors.
     Gpio(GpioE),
+}
+
+impl<SpiE, GpioE> From<MachineStateError> for Error<SpiE, GpioE> {
+    fn from(e: MachineStateError) -> Self {
+        match e {
+            MachineStateError::InvalidState(value) => Error::InvalidState(value),
+        }
+    }
 }
 
 impl<SpiE, GpioE> From<lowlevel::Error<SpiE, GpioE>> for Error<SpiE, GpioE> {
@@ -48,57 +59,28 @@ where
         Ok(Cc1101(lowlevel::Cc1101::new(spi, cs)?))
     }
 
-    // Commands
-    pub fn reset_chip(&mut self) -> Result<(), Error<SpiE, GpioE>> {
-        Ok(self.0.write_cmd_strobe(Command::SRES)?)
+    /// Last Chip Status Byte
+    pub fn get_last_chip_status_byte(&mut self) -> StatusByte {
+        self.0.status
     }
 
-    pub fn enable_and_cal_freq_synth(&mut self) -> Result<(), Error<SpiE, GpioE>> {
-        Ok(self.0.write_cmd_strobe(Command::SFSTXON)?)
-    }
-
-    pub fn disable_xosc(&mut self) -> Result<(), Error<SpiE, GpioE>> {
-        Ok(self.0.write_cmd_strobe(Command::SXOFF)?)
-    }
-
-    pub fn cal_freq_synth_and_disable(&mut self) -> Result<(), Error<SpiE, GpioE>> {
-        Ok(self.0.write_cmd_strobe(Command::SCAL)?)
-    }
-
-    pub fn enable_rx(&mut self) -> Result<(), Error<SpiE, GpioE>> {
-        Ok(self.0.write_cmd_strobe(Command::SRX)?)
-    }
-
-    pub fn enable_tx(&mut self) -> Result<(), Error<SpiE, GpioE>> {
-        Ok(self.0.write_cmd_strobe(Command::STX)?)
-    }
-
-    pub fn exit_rx_tx(&mut self) -> Result<(), Error<SpiE, GpioE>> {
-        Ok(self.0.write_cmd_strobe(Command::SIDLE)?)
-    }
-
-    pub fn start_wake_on_radio(&mut self) -> Result<(), Error<SpiE, GpioE>> {
-        Ok(self.0.write_cmd_strobe(Command::SWOR)?)
-    }
-
-    pub fn enter_power_down_mode(&mut self) -> Result<(), Error<SpiE, GpioE>> {
-        Ok(self.0.write_cmd_strobe(Command::SPWD)?)
-    }
-
-    pub fn flush_rx_fifo(&mut self) -> Result<(), Error<SpiE, GpioE>> {
-        Ok(self.0.write_cmd_strobe(Command::SFRX)?)
-    }
-
-    pub fn flush_tx_fifo(&mut self) -> Result<(), Error<SpiE, GpioE>> {
-        Ok(self.0.write_cmd_strobe(Command::SFTX)?)
-    }
-
-    pub fn reset_rtc_to_event1(&mut self) -> Result<(), Error<SpiE, GpioE>> {
-        Ok(self.0.write_cmd_strobe(Command::SWORRST)?)
-    }
-
-    pub fn nop(&mut self) -> Result<(), Error<SpiE, GpioE>> {
-        Ok(self.0.write_cmd_strobe(Command::SNOP)?)
+    pub fn command(&mut self, command: CommandStrobe) -> Result<(), Error<SpiE, GpioE>> {
+        let command_strobe = match command {
+            CommandStrobe::ResetChip => Command::SRES,
+            CommandStrobe::EnableAndCalFreqSynth => Command::SFSTXON,
+            CommandStrobe::TurnOffXosc => Command::SXOFF,
+            CommandStrobe::CalFreqSynthAndTurnOff => Command::SCAL,
+            CommandStrobe::EnableRx => Command::SRX,
+            CommandStrobe::EnableTx => Command::STX,
+            CommandStrobe::ExitRxTx => Command::SIDLE,
+            CommandStrobe::StartWakeOnRadio => Command::SWOR,
+            CommandStrobe::EnterPowerDownMode => Command::SPWD,
+            CommandStrobe::FlushRxFifoBuffer => Command::SFRX,
+            CommandStrobe::FlushTxFifoBuffer => Command::SFTX,
+            CommandStrobe::ResetRtcToEvent1 => Command::SWORRST,
+            CommandStrobe::NoOperation => Command::SNOP,
+        };
+        Ok(self.0.write_cmd_strobe(command_strobe)?)
     }
 
     // Configurations
@@ -272,31 +254,41 @@ where
         Ok(())
     }
 
-    /// Set radio in Receive/Transmit/Idle mode.
-    pub fn set_radio_mode(&mut self, radio_mode: RadioMode) -> Result<(), Error<SpiE, GpioE>> {
-        let target = match radio_mode {
-            RadioMode::Receive => {
-                self.set_radio_mode(RadioMode::Idle)?;
-                self.enable_rx()?;
-                MachineState::RX
+    // Machine State
+    pub fn read_machine_state(&mut self) -> Result<MachineState, Error<SpiE, GpioE>> {
+        let marcstate = MARCSTATE(self.0.read_register(Status::MARCSTATE)?);
+        Ok(MachineState::from_value(marcstate.marc_state())?)
+    }
+
+    // Data Access
+    pub fn read_data(&mut self, data: &mut [u8]) -> Result<(), Error<SpiE, GpioE>> {
+        self.0.access_fifo(Access::Read, data)?;
+        Ok(())
+    }
+
+    pub fn write_data(&mut self, data: &mut [u8]) -> Result<(), Error<SpiE, GpioE>> {
+        self.0.access_fifo(Access::Write, data)?;
+        Ok(())
+    }
+
+    // Legacy Methods
+    fn await_machine_state(
+        &mut self,
+        target_state: MachineState,
+    ) -> Result<(), Error<SpiE, GpioE>> {
+        loop {
+            let machine_state = self.read_machine_state()?;
+            if target_state == machine_state {
+                break;
             }
-            RadioMode::Transmit => {
-                self.set_radio_mode(RadioMode::Idle)?;
-                self.enable_tx()?;
-                MachineState::TX
-            }
-            RadioMode::Idle => {
-                self.exit_rx_tx()?;
-                MachineState::IDLE
-            }
-        };
-        self.await_machine_state(target)
+        }
+        Ok(())
     }
 
     /// Configure some default settings, to be removed in the future.
     #[cfg_attr(rustfmt, rustfmt_skip)]
     pub fn set_defaults(&mut self) -> Result<(), Error<SpiE, GpioE>> {
-        self.reset_chip()?;
+        self.command(CommandStrobe::ResetChip)?;
 
         self.0.write_register(Config::PKTCTRL0, PKTCTRL0::default()
             .white_data(0).bits()
@@ -321,23 +313,25 @@ where
         Ok(())
     }
 
-    // Machine State
-    pub fn read_machine_state(&mut self) -> Result<MachineState, Error<SpiE, GpioE>> {
-        let marcstate = MARCSTATE(self.0.read_register(Status::MARCSTATE)?);
-        Ok(MachineState::from_value(marcstate.marc_state()))
-    }
-
-    fn await_machine_state(
-        &mut self,
-        target_state: MachineState,
-    ) -> Result<(), Error<SpiE, GpioE>> {
-        loop {
-            let machine_state = self.read_machine_state()?;
-            if target_state == machine_state {
-                break;
+    /// Set radio in Receive/Transmit/Idle mode.
+    pub fn set_radio_mode(&mut self, radio_mode: RadioMode) -> Result<(), Error<SpiE, GpioE>> {
+        let target = match radio_mode {
+            RadioMode::Receive => {
+                self.set_radio_mode(RadioMode::Idle)?;
+                self.command(CommandStrobe::EnableRx)?;
+                MachineState::RX
             }
-        }
-        Ok(())
+            RadioMode::Transmit => {
+                self.set_radio_mode(RadioMode::Idle)?;
+                self.command(CommandStrobe::EnableTx)?;
+                MachineState::TX
+            }
+            RadioMode::Idle => {
+                self.command(CommandStrobe::ExitRxTx)?;
+                MachineState::IDLE
+            }
+        };
+        self.await_machine_state(target)
     }
 
     fn rx_bytes_available(&mut self) -> Result<u8, Error<SpiE, GpioE>> {
@@ -365,15 +359,12 @@ where
     pub fn receive(&mut self, addr: &mut u8, buf: &mut [u8]) -> Result<u8, Error<SpiE, GpioE>> {
         match self.rx_bytes_available() {
             Ok(_nbytes) => {
-                let mut length = 0u8;
-                self.0.read_fifo(addr, &mut length, buf)?;
+                self.read_data(buf)?;
+                let length = buf[0];
+                *addr = buf[1];
                 let lqi = self.0.read_register(Status::LQI)?;
                 self.await_machine_state(MachineState::IDLE)?;
-                self.flush_rx_fifo()?;
-
-                // Go back to Rx mode
-                // self.enable_rx()?;  // TODO: Check the logic
-
+                self.command(CommandStrobe::FlushRxFifoBuffer)?;
                 if (lqi >> 7) != 1 {
                     Err(Error::CrcMismatch)
                 } else {
@@ -381,11 +372,7 @@ where
                 }
             }
             Err(err) => {
-                self.flush_rx_fifo()?;
-
-                // Go back to Rx mode
-                // self.enable_rx()?;  // TODO: Check the logic
-
+                self.command(CommandStrobe::FlushRxFifoBuffer)?;
                 Err(err)
             }
         }
@@ -394,12 +381,15 @@ where
     pub fn transmit(&mut self, addr: &mut u8, buf: &mut [u8]) -> Result<(), Error<SpiE, GpioE>> {
         // Check if the Tx fifo is empty and handle the undeflow condition
         // stfx command strobe
-        let mut tx_len: u8 = buf.len() as u8;
-        self.0.write_register(MultiByte::FIFO, tx_len)?;
-        self.0.write_fifo(addr, &mut tx_len, buf)?;
-        self.enable_tx()?;
+        let tx_len: u8 = buf.len() as u8;
+
+        buf[0] = tx_len - 1;
+        buf[1] = *addr;
+        self.write_data(buf)?;
+        self.command(CommandStrobe::EnableTx)?;
         self.await_machine_state(MachineState::IDLE)?;
-        self.flush_tx_fifo()?;
+        self.command(CommandStrobe::FlushTxFifoBuffer)?;
+
         Ok(())
     }
 }

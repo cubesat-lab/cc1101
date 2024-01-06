@@ -1,6 +1,5 @@
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy)]
-
 pub enum Status {
     /// Chip part number
     PARTNUM = 0x30,

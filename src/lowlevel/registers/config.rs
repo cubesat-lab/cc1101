@@ -1,5 +1,4 @@
 #[derive(Clone, Copy)]
-
 pub enum Config {
     /// GDO2 output pin configuration
     IOCFG2 = 0x00,
