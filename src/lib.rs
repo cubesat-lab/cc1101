@@ -83,12 +83,49 @@ where
         Ok(self.0.write_cmd_strobe(command_strobe)?)
     }
 
-    // Configurations
+    /// Sets the carrier frequency (in Hertz).
     pub fn set_frequency(&mut self, hz: u64) -> Result<(), Error<SpiE, GpioE>> {
         let (freq0, freq1, freq2) = from_frequency(hz);
         self.0.write_register(Config::FREQ0, freq0)?;
         self.0.write_register(Config::FREQ1, freq1)?;
         self.0.write_register(Config::FREQ2, freq2)?;
+        Ok(())
+    }
+
+    /// Sets the frequency synthesizer intermediate frequency (in Hertz).
+    pub fn set_freq_if(&mut self, hz: u64) -> Result<(), Error<SpiE, GpioE>> {
+        self.0
+            .write_register(Config::FSCTRL1, FSCTRL1::default().freq_if(from_freq_if(hz)).bits())?;
+        Ok(())
+    }
+
+    /// Sets the target value for the averaged amplitude from the digital channel filter.
+    pub fn set_target_amplitude(&mut self, target: TargetAmplitude) -> Result<(), Error<SpiE, GpioE>> {
+        self.0.modify_register(Config::AGCCTRL2, |r| {
+            AGCCTRL2(r).modify().magn_target(target.into()).bits()
+        })?;
+        Ok(())
+    }
+
+    /// Sets the filter length (in FSK/MSK mode) or decision boundary (in OOK/ASK mode) for the AGC.
+    pub fn set_filter_length(
+        &mut self,
+        filter_length: FilterLength,
+    ) -> Result<(), Error<SpiE, GpioE>> {
+        self.0.modify_register(Config::AGCCTRL0, |r| {
+            AGCCTRL0(r).modify().filter_length(filter_length.into()).bits()
+        })?;
+        Ok(())
+    }
+
+    /// Configures when to run automatic calibration.
+    pub fn set_autocalibration(
+        &mut self,
+        autocal: AutoCalibration,
+    ) -> Result<(), Error<SpiE, GpioE>> {
+        self.0.modify_register(Config::MCSM0, |r| {
+            MCSM0(r).modify().fs_autocal(autocal.into()).bits()
+        })?;
         Ok(())
     }
 
@@ -101,6 +138,7 @@ where
         Ok(())
     }
 
+    /// Sets the data rate (in bits per second).
     pub fn set_data_rate(&mut self, baud: u64) -> Result<(), Error<SpiE, GpioE>> {
         let (mantissa, exponent) = from_drate(baud);
         self.0
@@ -161,6 +199,7 @@ where
         Ok(())
     }
 
+    /// Sets the channel bandwidth (in Hertz).
     pub fn set_chanbw(&mut self, bandwidth: u64) -> Result<(), Error<SpiE, GpioE>> {
         let (mantissa, exponent) = from_chanbw(bandwidth);
         self.0.modify_register(Config::MDMCFG4, |r| {
@@ -254,24 +293,46 @@ where
         Ok(())
     }
 
-    // Machine State
+    pub fn read_tx_bytes(&mut self) -> Result<u8, Error<SpiE, GpioE>> {
+        let txbytes = TXBYTES(self.0.read_register(Status::TXBYTES)?);
+        let num_txbytes: u8 = txbytes.num_txbytes();
+
+        if txbytes.txfifo_underflow() != 0 {
+            return Err(Error::TxUnderflow);
+        }
+
+        Ok(num_txbytes)
+    }
+
+    pub fn read_rx_bytes(&mut self) -> Result<u8, Error<SpiE, GpioE>> {
+        let rxbytes = RXBYTES(self.0.read_register(Status::RXBYTES)?);
+        let num_rxbytes: u8 = rxbytes.num_rxbytes();
+
+        if rxbytes.rxfifo_overflow() != 0 {
+            return Err(Error::RxOverflow);
+        }
+
+        Ok(num_rxbytes)
+    }
+
+    /// Read the Machine State
     pub fn read_machine_state(&mut self) -> Result<MachineState, Error<SpiE, GpioE>> {
         let marcstate = MARCSTATE(self.0.read_register(Status::MARCSTATE)?);
         Ok(MachineState::from_value(marcstate.marc_state())?)
     }
 
-    // Data Access
+    /// Read data from FIFO
     pub fn read_data(&mut self, data: &mut [u8]) -> Result<(), Error<SpiE, GpioE>> {
         self.0.access_fifo(Access::Read, data)?;
         Ok(())
     }
 
+    /// Write data into FIFO
     pub fn write_data(&mut self, data: &mut [u8]) -> Result<(), Error<SpiE, GpioE>> {
         self.0.access_fifo(Access::Write, data)?;
         Ok(())
     }
 
-    // Legacy Methods
     fn await_machine_state(
         &mut self,
         target_state: MachineState,
@@ -303,7 +364,7 @@ where
         )?;
 
         self.0.write_register(Config::MCSM0, MCSM0::default()
-            .fs_autocal(AutoCalibration::FROM_IDLE.value()).bits()
+            .fs_autocal(AutoCalibration::FromIdle.into()).bits()
         )?;
 
         self.0.write_register(Config::AGCCTRL2, AGCCTRL2::default()
@@ -316,19 +377,30 @@ where
     /// Set radio in Receive/Transmit/Idle mode.
     pub fn set_radio_mode(&mut self, radio_mode: RadioMode) -> Result<(), Error<SpiE, GpioE>> {
         let target = match radio_mode {
-            RadioMode::Receive => {
+            RadioMode::Idle => {
+                self.command(CommandStrobe::ExitRxTx)?;
+                MachineState::IDLE
+            }
+            RadioMode::Sleep => {
                 self.set_radio_mode(RadioMode::Idle)?;
-                self.command(CommandStrobe::EnableRx)?;
-                MachineState::RX
+                self.command(CommandStrobe::EnterPowerDownMode)?;
+                MachineState::SLEEP
+            }
+            RadioMode::Calibrate => {
+                self.set_radio_mode(RadioMode::Idle)?;
+                self.command(CommandStrobe::CalFreqSynthAndTurnOff)?;
+                MachineState::MANCAL
             }
             RadioMode::Transmit => {
                 self.set_radio_mode(RadioMode::Idle)?;
                 self.command(CommandStrobe::EnableTx)?;
                 MachineState::TX
             }
-            RadioMode::Idle => {
-                self.command(CommandStrobe::ExitRxTx)?;
-                MachineState::IDLE
+
+            RadioMode::Receive => {
+                self.set_radio_mode(RadioMode::Idle)?;
+                self.command(CommandStrobe::EnableRx)?;
+                MachineState::RX
             }
         };
         self.await_machine_state(target)
@@ -338,17 +410,13 @@ where
         let mut last = 0;
 
         loop {
-            let rxbytes = RXBYTES(self.0.read_register(Status::RXBYTES)?);
-            if rxbytes.rxfifo_overflow() == 1 {
-                return Err(Error::RxOverflow);
-            }
+            let num_rxbytes = self.read_rx_bytes()?;
 
-            let nbytes = rxbytes.num_rxbytes();
-            if (nbytes > 0) && (nbytes == last) {
+            if (num_rxbytes > 0) && (num_rxbytes == last) {
                 break;
             }
 
-            last = nbytes;
+            last = num_rxbytes;
         }
         Ok(last)
     }

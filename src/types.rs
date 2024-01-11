@@ -68,9 +68,11 @@ pub enum AddressFilter {
 
 /// Radio operational mode.
 pub enum RadioMode {
-    Receive,
-    Transmit,
     Idle,
+    Sleep,
+    Calibrate,
+    Transmit,
+    Receive,
 }
 
 /// Sync word configuration.
@@ -113,4 +115,48 @@ pub enum CommandStrobe {
     ResetRtcToEvent1,
     /// SNOP
     NoOperation,
+}
+
+/// Target amplitude from channel filter.
+pub enum TargetAmplitude {
+    /// 24 dB
+    Db24 = 0,
+    /// 27 dB
+    Db27 = 1,
+    /// 30 dB
+    Db30 = 2,
+    /// 33 dB
+    Db33 = 3,
+    /// 36 dB
+    Db36 = 4,
+    /// 38 dB
+    Db38 = 5,
+    /// 40 dB
+    Db40 = 6,
+    /// 42 dB
+    Db42 = 7,
+}
+
+impl From<TargetAmplitude> for u8 {
+    fn from(value: TargetAmplitude) -> Self {
+        value as Self
+    }
+}
+
+/// Channel filter samples or OOK/ASK decision boundary for AGC.
+pub enum FilterLength {
+    /// 8 filter samples for FSK/MSK, or 4 dB for OOK/ASK.
+    Samples8 = 0,
+    /// 16 filter samples for FSK/MSK, or 8 dB for OOK/ASK.
+    Samples16 = 1,
+    /// 32 filter samples for FSK/MSK, or 12 dB for OOK/ASK.
+    Samples32 = 2,
+    /// 64 filter samples for FSK/MSK, or 16 dB for OOK/ASK.
+    Samples64 = 3,
+}
+
+impl From<FilterLength> for u8 {
+    fn from(value: FilterLength) -> Self {
+        value as Self
+    }
 }

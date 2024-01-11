@@ -50,15 +50,11 @@ pub struct StatusByte {
     pub fifo_bytes_available: u8,
 }
 
-fn u8_to_bool(value: u8) -> bool {
-    value != 0
-}
-
 impl From<u8> for StatusByte {
     fn from(value: u8) -> Self {
         let status_byte = STATUS_BYTE(value);
         StatusByte {
-            chip_rdy: !u8_to_bool(status_byte.chip_rdyn()),
+            chip_rdy: !(status_byte.chip_rdyn() != 0),
             state: State::from(status_byte.state()),
             fifo_bytes_available: status_byte.fifo_bytes_available(),
         }

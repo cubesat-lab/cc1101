@@ -1,4 +1,5 @@
 use crate::lowlevel::FXOSC;
+use core::convert::TryInto;
 
 const RSSI_OFFSET: i16 = 74; // Table 31: Typical RSSI_offset Values
 
@@ -21,13 +22,22 @@ pub const fn from_drate(v: u64) -> (u8, u8) {
     let exponent = 64 - (v.rotate_left(19) / FXOSC).leading_zeros();
     let mantissa = ((v.rotate_left(27)) / (FXOSC.rotate_left(exponent - 1))) - 255;
     // When mantissa is 256, wrap to zero and increase exponent by one
-    [(mantissa as u8, exponent as u8), (0u8, (exponent + 1) as u8)][(mantissa == 256) as usize]
+    if mantissa == 256 {
+        (0u8, (exponent + 1) as u8)
+    } else {
+        (mantissa as u8, exponent as u8)
+    }
 }
 
 pub fn from_chanbw(v: u64) -> (u8, u8) {
     let exponent = 64 - (FXOSC / (8 * 4 * v)).leading_zeros() - 1;
     let mantissa = FXOSC / (v * 8 * 2u64.pow(exponent)) - 4;
     (mantissa as u8 & 0x3, exponent as u8 & 0x3)
+}
+
+pub fn from_freq_if(hz: u64) -> u8 {
+    // Round towards the closest setting, rather than down.
+    (((hz << 10) + FXOSC / 2) / FXOSC).try_into().unwrap()
 }
 
 pub fn from_rssi_to_rssi_dbm(rssi: u8) -> i16 {
@@ -120,5 +130,12 @@ mod tests {
         assert_eq!(from_chanbw(81250), (0b01, 0b11));
         assert_eq!(from_chanbw(67708), (0b10, 0b11));
         assert_eq!(from_chanbw(58035), (0b11, 0b11));
+    }
+
+    #[test]
+    fn test_freq_if() {
+        assert_eq!(from_freq_if(381_000), 0x0F);
+        assert_eq!(from_freq_if(203_125), 0x08);
+        assert_eq!(from_freq_if(152_300), 0x06);
     }
 }
