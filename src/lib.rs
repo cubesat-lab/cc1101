@@ -9,8 +9,11 @@ use hal::digital::v2::OutputPin;
 pub mod lowlevel;
 mod types;
 
-pub use lowlevel::types::{MachineState, MachineStateError};
 use lowlevel::{access::*, convert::*, registers::*, types::*};
+pub use lowlevel::{
+    types::{MachineState, MachineStateError},
+    FIFO_MAX_SIZE,
+};
 pub use types::*;
 
 /// CC1101 errors.
@@ -24,6 +27,8 @@ pub enum Error<SpiE, GpioE> {
     CrcMismatch,
     /// Invalid state read from MARCSTATE register
     InvalidState(u8),
+    /// User Input Error
+    UserInputError(usize),
     /// Platform-dependent SPI-errors, such as IO errors.
     Spi(SpiE),
     /// Platform-dependent GPIO-errors, such as IO errors.
@@ -100,7 +105,10 @@ where
     }
 
     /// Sets the target value for the averaged amplitude from the digital channel filter.
-    pub fn set_target_amplitude(&mut self, target: TargetAmplitude) -> Result<(), Error<SpiE, GpioE>> {
+    pub fn set_target_amplitude(
+        &mut self,
+        target: TargetAmplitude,
+    ) -> Result<(), Error<SpiE, GpioE>> {
         self.0.modify_register(Config::AGCCTRL2, |r| {
             AGCCTRL2(r).modify().magn_target(target.into()).bits()
         })?;
@@ -323,7 +331,11 @@ where
 
     /// Read data from FIFO
     pub fn read_data(&mut self, data: &mut [u8]) -> Result<(), Error<SpiE, GpioE>> {
-        self.0.access_fifo(Access::Read, data)?;
+        if data.len() <= FIFO_MAX_SIZE.into() {
+            self.0.access_fifo(Access::Read, data)?;
+        } else {
+            return Err(Error::UserInputError(data.len()));
+        }
         Ok(())
     }
 
