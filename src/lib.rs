@@ -301,6 +301,14 @@ where
         Ok(())
     }
 
+    /// Turn data whitening on / off.
+    pub fn white_data(&mut self, enable: bool) -> Result<(), Error<SpiE, GpioE>> {
+        self.0.modify_register(Config::PKTCTRL0, |r| {
+            PKTCTRL0(r).modify().white_data(enable as u8).bits()
+        })?;
+        Ok(())
+    }
+
     pub fn read_tx_bytes(&mut self) -> Result<u8, Error<SpiE, GpioE>> {
         let txbytes = TXBYTES(self.0.read_register(Status::TXBYTES)?);
         let num_txbytes: u8 = txbytes.num_txbytes();
