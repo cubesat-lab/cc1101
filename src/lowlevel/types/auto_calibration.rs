@@ -1,6 +1,5 @@
 /// Configure what state transitions result in auto-calibration.
-#[allow(non_camel_case_types)]
-#[derive(Clone, Copy)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum AutoCalibration {
     /// Never (manually calibrate using SCAL strobe).
     Disabled = 0x00,
