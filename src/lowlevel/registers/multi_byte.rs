@@ -17,8 +17,8 @@ impl MultiByte {
     }
 }
 
-impl Into<crate::lowlevel::registers::Register> for MultiByte {
-    fn into(self) -> crate::lowlevel::registers::Register {
-        crate::lowlevel::registers::Register::MultiByte(self)
+impl From<MultiByte> for crate::lowlevel::registers::Register {
+    fn from(value: MultiByte) -> Self {
+        crate::lowlevel::registers::Register::MultiByte(value)
     }
 }

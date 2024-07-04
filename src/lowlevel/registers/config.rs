@@ -106,9 +106,9 @@ impl Config {
     }
 }
 
-impl Into<crate::lowlevel::registers::Register> for Config {
-    fn into(self) -> crate::lowlevel::registers::Register {
-        crate::lowlevel::registers::Register::Config(self)
+impl From<Config> for crate::lowlevel::registers::Register {
+    fn from(value: Config) -> Self {
+        crate::lowlevel::registers::Register::Config(value)
     }
 }
 

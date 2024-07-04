@@ -39,8 +39,8 @@ impl Command {
     }
 }
 
-impl Into<crate::lowlevel::registers::Register> for Command {
-    fn into(self) -> crate::lowlevel::registers::Register {
-        crate::lowlevel::registers::Register::Command(self)
+impl From<Command> for crate::lowlevel::registers::Register {
+    fn from(value: Command) -> Self {
+        crate::lowlevel::registers::Register::Command(value)
     }
 }
