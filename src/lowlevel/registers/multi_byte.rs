@@ -1,5 +1,4 @@
-#[allow(non_camel_case_types)]
-#[derive(Clone, Copy)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum MultiByte {
     /// Power Amplifier Table
     PATABLE = 0x3E,
