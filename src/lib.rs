@@ -45,8 +45,10 @@ impl<SpiE> From<SpiE> for Error<SpiE> {
 impl<SpiE: Display> Display for Error<SpiE> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
+            Self::TxUnderflow => write!(f, "TX FIFO buffer underflowed"),
             Self::RxOverflow => write!(f, "RX FIFO buffer overflowed"),
             Self::CrcMismatch => write!(f, "CRC mismatch"),
+            Self::InvalidState(s) => write!(f, "Invalid state: {}", s),
             Self::Spi(e) => write!(f, "SPI error: {}", e),
             _ => panic!("TODO"),
         }
@@ -72,23 +74,82 @@ where
         self.0.status
     }
 
-    pub fn command(&mut self, command: CommandStrobe) -> Result<(), Error<SpiE>> {
-        let command_strobe = match command {
-            CommandStrobe::ResetChip => Command::SRES,
-            CommandStrobe::EnableAndCalFreqSynth => Command::SFSTXON,
-            CommandStrobe::TurnOffXosc => Command::SXOFF,
-            CommandStrobe::CalFreqSynthAndTurnOff => Command::SCAL,
-            CommandStrobe::EnableRx => Command::SRX,
-            CommandStrobe::EnableTx => Command::STX,
-            CommandStrobe::ExitRxTx => Command::SIDLE,
-            CommandStrobe::StartWakeOnRadio => Command::SWOR,
-            CommandStrobe::EnterPowerDownMode => Command::SPWD,
-            CommandStrobe::FlushRxFifoBuffer => Command::SFRX,
-            CommandStrobe::FlushTxFifoBuffer => Command::SFTX,
-            CommandStrobe::ResetRtcToEvent1 => Command::SWORRST,
-            CommandStrobe::NoOperation => Command::SNOP,
-        };
-        Ok(self.0.write_cmd_strobe(command_strobe)?)
+    /// Command Strobe: Reset chip
+    pub fn reset_chip(&mut self) -> Result<(), Error<SpiE>> {
+        self.0.write_cmd_strobe(Command::SRES)?;
+        Ok(())
+    }
+
+    /// Command Strobe: Enable and calibrate frequency synthesizer
+    pub fn enable_and_cal_freq_synth(&mut self) -> Result<(), Error<SpiE>> {
+        self.0.write_cmd_strobe(Command::SFSTXON)?;
+        Ok(())
+    }
+
+    /// Command Strobe: Turn off crystal oscillator
+    pub fn turn_off_xosc(&mut self) -> Result<(), Error<SpiE>> {
+        self.0.write_cmd_strobe(Command::SXOFF)?;
+        Ok(())
+    }
+
+    /// Command Strobe: Calibrate frequency synthesizer and turn it off
+    pub fn cal_freq_synth_and_turn_off(&mut self) -> Result<(), Error<SpiE>> {
+        self.0.write_cmd_strobe(Command::SCAL)?;
+        Ok(())
+    }
+
+    /// Command Strobe: Enable RX
+    pub fn enable_rx(&mut self) -> Result<(), Error<SpiE>> {
+        self.0.write_cmd_strobe(Command::SRX)?;
+        Ok(())
+    }
+
+    /// Command Strobe: Enable TX
+    pub fn enable_tx(&mut self) -> Result<(), Error<SpiE>> {
+        self.0.write_cmd_strobe(Command::STX)?;
+        Ok(())
+    }
+
+    /// Command Strobe: Exit RX / TX, turn off frequency synthesizer
+    pub fn exit_rx_tx(&mut self) -> Result<(), Error<SpiE>> {
+        self.0.write_cmd_strobe(Command::SIDLE)?;
+        Ok(())
+    }
+
+    /// Command Strobe: Start automatic RX polling sequence (Wake-on-Radio)
+    pub fn start_wake_on_radio(&mut self) -> Result<(), Error<SpiE>> {
+        self.0.write_cmd_strobe(Command::SWOR)?;
+        Ok(())
+    }
+
+    /// Command Strobe: Enter power down mode when CSn goes high
+    pub fn enter_power_down_mode(&mut self) -> Result<(), Error<SpiE>> {
+        self.0.write_cmd_strobe(Command::SPWD)?;
+        Ok(())
+    }
+
+    /// Command Strobe: Flush the RX FIFO buffer
+    pub fn flush_rx_fifo_buffer(&mut self) -> Result<(), Error<SpiE>> {
+        self.0.write_cmd_strobe(Command::SFRX)?;
+        Ok(())
+    }
+
+    /// Command Strobe: Flush the TX FIFO buffer
+    pub fn flush_tx_fifo_buffer(&mut self) -> Result<(), Error<SpiE>> {
+        self.0.write_cmd_strobe(Command::SFTX)?;
+        Ok(())
+    }
+
+    /// Command Strobe: Reset real time clock to Event1 value
+    pub fn reset_rtc_to_event1(&mut self) -> Result<(), Error<SpiE>> {
+        self.0.write_cmd_strobe(Command::SWORRST)?;
+        Ok(())
+    }
+
+    /// Command Strobe: No operation. May be used to get access to the chip status byte
+    pub fn no_operation(&mut self) -> Result<(), Error<SpiE>> {
+        self.0.write_cmd_strobe(Command::SNOP)?;
+        Ok(())
     }
 
     /// Sets the carrier frequency (in Hertz).
@@ -108,7 +169,7 @@ where
     }
 
     /// Sets the target value for the averaged amplitude from the digital channel filter.
-    pub fn set_target_amplitude(&mut self, target: TargetAmplitude) -> Result<(), Error<SpiE>> {
+    pub fn set_magn_target(&mut self, target: TargetAmplitude) -> Result<(), Error<SpiE>> {
         self.0.modify_register(Config::AGCCTRL2, |r| {
             AGCCTRL2(r).modify().magn_target(target.into()).bits()
         })?;
@@ -131,6 +192,7 @@ where
         Ok(())
     }
 
+    /// Set Modem deviation setting.
     pub fn set_deviation(&mut self, deviation: u64) -> Result<(), Error<SpiE>> {
         let (mantissa, exponent) = from_deviation(deviation);
         self.0.write_register(
@@ -149,51 +211,26 @@ where
         Ok(())
     }
 
-    pub fn enable_fec(&mut self, enable: bool) -> Result<(), Error<SpiE>> {
+    /// Enable Forward Error Correction (FEC) with interleaving for packet payload
+    pub fn fec_enable(&mut self, enable: bool) -> Result<(), Error<SpiE>> {
         self.0.modify_register(Config::MDMCFG1, |r| {
             MDMCFG1(r).modify().fec_en(enable as u8).bits()
         })?;
         Ok(())
     }
 
+    /// Sets the minimum number of preamble bytes to be transmitted
+    pub fn set_num_preamble(&mut self, num_preamble: NumPreamble) -> Result<(), Error<SpiE>> {
+        self.0.modify_register(Config::MDMCFG1, |r| {
+            MDMCFG1(r).modify().num_preamble(num_preamble.into()).bits()
+        })?;
+        Ok(())
+    }
+
+    /// Selects CCA_MODE; Reflected in CCA signal.
     pub fn set_cca_mode(&mut self, cca_mode: CcaMode) -> Result<(), Error<SpiE>> {
-        let mode = match cca_mode {
-            CcaMode::AlwaysClear => CcaModeConfig::ALWAYS,
-            CcaMode::ClearBelowThreshold => CcaModeConfig::RSSI_BELOW_THR,
-            CcaMode::ClearWhenReceivingPacket => CcaModeConfig::RCV_PACKET,
-            CcaMode::ClearBelowThresholdUnlessReceivingPacket => {
-                CcaModeConfig::RSSI_BELOW_THR_UNLESS_RCV_PACKET
-            }
-        };
-
-        self.0
-            .modify_register(Config::MCSM1, |r| MCSM1(r).modify().cca_mode(mode.value()).bits())?;
-
-        Ok(())
-    }
-
-    pub fn set_num_preamble(&mut self, num_preamble: NumPreambleBytes) -> Result<(), Error<SpiE>> {
-        let preamble_setting = match num_preamble {
-            NumPreambleBytes::Two => NumPreamble::N_2,
-            NumPreambleBytes::Three => NumPreamble::N_3,
-            NumPreambleBytes::Four => NumPreamble::N_4,
-            NumPreambleBytes::Six => NumPreamble::N_6,
-            NumPreambleBytes::Eight => NumPreamble::N_8,
-            NumPreambleBytes::Twelve => NumPreamble::N_12,
-            NumPreambleBytes::Sixteen => NumPreamble::N_16,
-            NumPreambleBytes::TwentyFour => NumPreamble::N_24,
-        };
-
-        self.0.write_register(
-            Config::MDMCFG1,
-            MDMCFG1::default().num_preamble(preamble_setting as u8).bits(),
-        )?;
-        Ok(())
-    }
-
-    pub fn crc_enable(&mut self, enable: bool) -> Result<(), Error<SpiE>> {
-        self.0.modify_register(Config::PKTCTRL0, |r| {
-            PKTCTRL0(r).modify().crc_en(enable as u8).bits()
+        self.0.modify_register(Config::MCSM1, |r| {
+            MCSM1(r).modify().cca_mode(cca_mode.into()).bits()
         })?;
         Ok(())
     }
@@ -235,26 +272,20 @@ where
             SyncMode::MatchFull(word) => (SyncCheck::CHECK_16_16, word),
         };
         self.0.modify_register(Config::MDMCFG2, |r| {
-            MDMCFG2(r).modify().sync_mode(mode.value()).bits()
+            MDMCFG2(r).modify().sync_mode(mode.into()).bits()
         })?;
         self.0.write_register(Config::SYNC1, ((word >> 8) & 0xff) as u8)?;
         self.0.write_register(Config::SYNC0, (word & 0xff) as u8)?;
         Ok(())
     }
 
-    /// Configure signal modulation.
-    pub fn set_modulation(&mut self, format: Modulation) -> Result<(), Error<SpiE>> {
-        use lowlevel::types::ModFormat as MF;
-
-        let value = match format {
-            Modulation::BinaryFrequencyShiftKeying => MF::MOD_2FSK,
-            Modulation::GaussianFrequencyShiftKeying => MF::MOD_GFSK,
-            Modulation::OnOffKeying => MF::MOD_ASK_OOK,
-            Modulation::FourFrequencyShiftKeying => MF::MOD_4FSK,
-            Modulation::MinimumShiftKeying => MF::MOD_MSK,
-        };
+    /// Set the modulation format of the radio signal.
+    pub fn set_modulation_format(
+        &mut self,
+        mod_format: ModulationFormat,
+    ) -> Result<(), Error<SpiE>> {
         self.0.modify_register(Config::MDMCFG2, |r| {
-            MDMCFG2(r).modify().mod_format(value.value()).bits()
+            MDMCFG2(r).modify().mod_format(mod_format.into()).bits()
         })?;
         Ok(())
     }
@@ -270,36 +301,43 @@ where
             AddressFilter::DeviceHighLowBroadcast(addr) => (AC::SELF_HIGH_LOW_BROADCAST, addr),
         };
         self.0.modify_register(Config::PKTCTRL1, |r| {
-            PKTCTRL1(r).modify().adr_chk(mode.value()).bits()
+            PKTCTRL1(r).modify().adr_chk(mode.into()).bits()
         })?;
         self.0.write_register(Config::ADDR, addr)?;
         Ok(())
     }
 
-    /// Configure packet mode, and length.
-    pub fn set_packet_length(&mut self, length: PacketLength) -> Result<(), Error<SpiE>> {
-        use lowlevel::types::LengthConfig as LC;
-
-        let (format, pktlen) = match length {
-            PacketLength::Fixed(limit) => (LC::FIXED, limit),
-            PacketLength::Variable(max_limit) => (LC::VARIABLE, max_limit),
-            PacketLength::Infinite => (LC::INFINITE, PKTLEN::default().bits()),
-        };
-        self.0.modify_register(Config::PKTCTRL0, |r| {
-            PKTCTRL0(r).modify().length_config(format.value()).bits()
-        })?;
-        self.0.write_register(Config::PKTLEN, pktlen)?;
-        Ok(())
-    }
-
     /// Turn data whitening on / off.
-    pub fn white_data(&mut self, enable: bool) -> Result<(), Error<SpiE>> {
+    pub fn white_data_enable(&mut self, enable: bool) -> Result<(), Error<SpiE>> {
         self.0.modify_register(Config::PKTCTRL0, |r| {
             PKTCTRL0(r).modify().white_data(enable as u8).bits()
         })?;
         Ok(())
     }
 
+    /// Enable CRC calculation in TX and CRC check in RX
+    pub fn crc_enable(&mut self, enable: bool) -> Result<(), Error<SpiE>> {
+        self.0.modify_register(Config::PKTCTRL0, |r| {
+            PKTCTRL0(r).modify().crc_en(enable as u8).bits()
+        })?;
+        Ok(())
+    }
+
+    /// Configure packet mode, and length.
+    pub fn set_packet_length(&mut self, length: PacketLength) -> Result<(), Error<SpiE>> {
+        let (format, pktlen) = match length {
+            PacketLength::Fixed(limit) => (LengthConfig::FIXED, limit),
+            PacketLength::Variable(max_limit) => (LengthConfig::VARIABLE, max_limit),
+            PacketLength::Infinite => (LengthConfig::INFINITE, PKTLEN::default().bits()),
+        };
+        self.0.modify_register(Config::PKTCTRL0, |r| {
+            PKTCTRL0(r).modify().length_config(format.into()).bits()
+        })?;
+        self.0.write_register(Config::PKTLEN, pktlen)?;
+        Ok(())
+    }
+
+    /// Read number of bytes in TX FIFO
     pub fn read_tx_bytes(&mut self) -> Result<u8, Error<SpiE>> {
         let txbytes = TXBYTES(self.0.read_register(Status::TXBYTES)?);
         let num_txbytes: u8 = txbytes.num_txbytes();
@@ -311,6 +349,7 @@ where
         Ok(num_txbytes)
     }
 
+    /// Read number of bytes in RX FIFO
     pub fn read_rx_bytes(&mut self) -> Result<u8, Error<SpiE>> {
         let rxbytes = RXBYTES(self.0.read_register(Status::RXBYTES)?);
         let num_rxbytes: u8 = rxbytes.num_rxbytes();
@@ -326,7 +365,7 @@ where
     pub fn read_machine_state(&mut self) -> Result<MachineState, Error<SpiE>> {
         let marcstate = MARCSTATE(self.0.read_register(Status::MARCSTATE)?);
 
-        match MachineState::from_value(marcstate.marc_state()) {
+        match MachineState::try_from(marcstate.marc_state()) {
             Ok(state) => Ok(state),
             Err(e) => match e {
                 MachineStateError::InvalidState(value) => Err(Error::InvalidState(value)),
@@ -361,25 +400,21 @@ where
     }
 
     /// Configure some default settings, to be removed in the future.
-    #[cfg_attr(rustfmt, rustfmt_skip)]
+    #[rustfmt::skip]
     pub fn set_defaults(&mut self) -> Result<(), Error<SpiE>> {
-        self.command(CommandStrobe::ResetChip)?;
+        self.reset_chip()?;
 
         self.0.write_register(Config::PKTCTRL0, PKTCTRL0::default()
             .white_data(0).bits()
         )?;
 
-        self.0.write_register(Config::FSCTRL1, FSCTRL1::default()
-            .freq_if(0x08).bits() // f_if = (f_osc / 2^10) * FREQ_IF
-        )?;
+        self.set_freq_if(203_125)?;
 
         self.0.write_register(Config::MDMCFG2, MDMCFG2::default()
             .dem_dcfilt_off(1).bits()
         )?;
 
-        self.0.write_register(Config::MCSM0, MCSM0::default()
-            .fs_autocal(AutoCalibration::FromIdle.into()).bits()
-        )?;
+        self.set_autocalibration(AutoCalibration::FromIdle)?;
 
         self.0.write_register(Config::AGCCTRL2, AGCCTRL2::default()
             .max_lna_gain(0x04).bits()
@@ -388,32 +423,31 @@ where
         Ok(())
     }
 
-    /// Set radio in Receive/Transmit/Idle mode.
+    /// Set radio in Idle/Sleep/Calibrate/Transmit/Receive mode.
     pub fn set_radio_mode(&mut self, radio_mode: RadioMode) -> Result<(), Error<SpiE>> {
         let target = match radio_mode {
             RadioMode::Idle => {
-                self.command(CommandStrobe::ExitRxTx)?;
+                self.exit_rx_tx()?;
                 MachineState::IDLE
             }
             RadioMode::Sleep => {
                 self.set_radio_mode(RadioMode::Idle)?;
-                self.command(CommandStrobe::EnterPowerDownMode)?;
+                self.enter_power_down_mode()?;
                 MachineState::SLEEP
             }
             RadioMode::Calibrate => {
                 self.set_radio_mode(RadioMode::Idle)?;
-                self.command(CommandStrobe::CalFreqSynthAndTurnOff)?;
+                self.cal_freq_synth_and_turn_off()?;
                 MachineState::MANCAL
             }
             RadioMode::Transmit => {
                 self.set_radio_mode(RadioMode::Idle)?;
-                self.command(CommandStrobe::EnableTx)?;
+                self.enable_tx()?;
                 MachineState::TX
             }
-
             RadioMode::Receive => {
                 self.set_radio_mode(RadioMode::Idle)?;
-                self.command(CommandStrobe::EnableRx)?;
+                self.enable_rx()?;
                 MachineState::RX
             }
         };
@@ -446,7 +480,7 @@ where
                 *addr = buf[1];
                 let lqi = self.0.read_register(Status::LQI)?;
                 self.await_machine_state(MachineState::IDLE)?;
-                self.command(CommandStrobe::FlushRxFifoBuffer)?;
+                self.flush_rx_fifo_buffer()?;
                 if (lqi >> 7) != 1 {
                     Err(Error::CrcMismatch)
                 } else {
@@ -454,7 +488,7 @@ where
                 }
             }
             Err(err) => {
-                self.command(CommandStrobe::FlushRxFifoBuffer)?;
+                self.flush_rx_fifo_buffer()?;
                 Err(err)
             }
         }
@@ -468,10 +502,19 @@ where
         buf[0] = tx_len - 1;
         buf[1] = *addr;
         self.write_data(buf)?;
-        self.command(CommandStrobe::EnableTx)?;
+        self.enable_tx()?;
         self.await_machine_state(MachineState::IDLE)?;
-        self.command(CommandStrobe::FlushTxFifoBuffer)?;
+        self.flush_tx_fifo_buffer()?;
 
+        Ok(())
+    }
+
+    /// Configures raw data to be passed through, without any packet handling.
+    pub fn set_raw_mode(&mut self) -> Result<(), Error<SpiE>> {
+        // Serial data output.
+        self.0.write_register(Config::IOCFG0, 0x0d)?;
+        // Disable data whitening and CRC, fixed packet length, asynchronous serial mode.
+        self.0.write_register(Config::PKTCTRL0, 0x30)?;
         Ok(())
     }
 }

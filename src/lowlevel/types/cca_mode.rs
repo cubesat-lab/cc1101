@@ -1,19 +1,19 @@
-/// CCA Mode Configuration
-#[allow(non_camel_case_types)]
-#[derive(Clone, Copy)]
-pub enum CcaModeConfig {
-    /// Clear Channel Always
-    ALWAYS = 0x00,
-    /// Clear Channel If RSSI Below Threshold
-    RSSI_BELOW_THR = 0x01,
-    /// Clear Channel If RSSI Below Threshold Unless Receiving Packet
-    RCV_PACKET = 0x02,
-    /// Clear Channel If RSSI Below Threshold Unless Receiving Packet
-    RSSI_BELOW_THR_UNLESS_RCV_PACKET = 0x03,
+/// Clear Channel Assessment Mode.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum CcaMode {
+    /// Clear channel indication: Always
+    CciAlways = 0,
+    /// Clear channel indication: If RSSI below threshold
+    CciRssiBelowThreshold = 1,
+    /// Clear channel indication: Unless currently receiving a packet
+    CciUnlessCurrentlyReceivingPacket = 2,
+    /// Clear channel indication: If RSSI below threshold unless currently receiving a packet
+    CciRssiBelowThresholdUnlessCurrentlyReceivingPacket = 3,
 }
 
-impl CcaModeConfig {
-    pub fn value(&self) -> u8 {
-        *self as u8
+impl From<CcaMode> for u8 {
+    fn from(value: CcaMode) -> Self {
+        value as Self
     }
 }

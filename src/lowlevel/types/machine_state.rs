@@ -1,6 +1,7 @@
 /// Radio hardware machine states.
 #[allow(non_camel_case_types)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u8)]
 pub enum MachineState {
     SLEEP = 0x00,
     IDLE = 0x01,
@@ -32,12 +33,16 @@ pub enum MachineStateError {
     InvalidState(u8),
 }
 
-impl MachineState {
-    pub fn value(&self) -> u8 {
-        *self as u8
+impl From<MachineState> for u8 {
+    fn from(value: MachineState) -> Self {
+        value as Self
     }
+}
 
-    pub fn from_value(value: u8) -> Result<Self, MachineStateError> {
+impl TryFrom<u8> for MachineState {
+    type Error = MachineStateError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0x00 => Ok(MachineState::SLEEP),
             0x01 => Ok(MachineState::IDLE),

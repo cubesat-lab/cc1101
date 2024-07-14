@@ -1,6 +1,7 @@
 /// Address check configuration.
 #[allow(non_camel_case_types)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u8)]
 pub enum AddressCheck {
     /// No address check.
     DISABLED = 0x00,
@@ -12,8 +13,8 @@ pub enum AddressCheck {
     SELF_HIGH_LOW_BROADCAST = 0x03,
 }
 
-impl AddressCheck {
-    pub fn value(&self) -> u8 {
-        *self as u8
+impl From<AddressCheck> for u8 {
+    fn from(value: AddressCheck) -> Self {
+        value as Self
     }
 }

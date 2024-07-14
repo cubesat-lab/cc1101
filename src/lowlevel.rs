@@ -4,9 +4,9 @@ use hal::spi::{Operation, SpiDevice};
 
 #[macro_use]
 mod macros;
-mod access;
 mod traits;
 
+pub mod access;
 pub mod convert;
 pub mod registers;
 pub mod types;
