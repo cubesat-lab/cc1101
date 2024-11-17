@@ -10,8 +10,10 @@ mod mod_format;
 mod num_preamble;
 mod packet_status;
 mod po_timeout;
+mod rxoff_mode;
 mod sync_check;
 mod target_amplitude;
+mod txoff_mode;
 
 pub use self::address_check::*;
 pub use self::auto_calibration::*;
@@ -25,5 +27,7 @@ pub use self::mod_format::*;
 pub use self::num_preamble::*;
 pub use self::packet_status::*;
 pub use self::po_timeout::*;
+pub use self::rxoff_mode::*;
 pub use self::sync_check::*;
 pub use self::target_amplitude::*;
+pub use self::txoff_mode::*;

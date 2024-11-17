@@ -345,6 +345,23 @@ where
         Ok(())
     }
 
+    /// Select what should happen when a packet has been received.
+    /// Note: It is not possible to set RXOFF_MODE to be TX or FSTXON and at the same time use CCA.
+    pub fn set_rxoff_mode(&mut self, rxoff_mode: RxOffMode) -> Result<(), Error<SpiE>> {
+        self.0.modify_register(Config::MCSM1, |r| {
+            MCSM1(r).modify().rxoff_mode(rxoff_mode.into()).bits()
+        })?;
+        Ok(())
+    }
+
+    /// Select what should happen when a packet has been sent (TX).
+    pub fn set_txoff_mode(&mut self, txoff_mode: TxOffMode) -> Result<(), Error<SpiE>> {
+        self.0.modify_register(Config::MCSM1, |r| {
+            MCSM1(r).modify().txoff_mode(txoff_mode.into()).bits()
+        })?;
+        Ok(())
+    }
+
     /// Sets the channel bandwidth (in Hertz).
     pub fn set_chanbw(&mut self, bandwidth: u64) -> Result<(), Error<SpiE>> {
         let (mantissa, exponent) = from_chanbw(bandwidth);
