@@ -13,7 +13,7 @@ pub mod lowlevel;
 mod types;
 
 use lowlevel::{access::*, convert::*, registers::*};
-pub use lowlevel::{types::*, FIFO_SIZE_MAX};
+pub use lowlevel::{types::*, FIFO_SIZE_MAX, PACKET_STATUS_BYTES};
 pub use types::*;
 
 /// CC1101 errors.
@@ -548,9 +548,14 @@ where
         lqi: &mut Option<u8>,
         data: &mut [u8],
     ) -> Result<(), Error<SpiE>> {
-        let num_of_optional_fields = self.0.length_field as usize + self.0.address_field as usize;
-        let data_len_max: usize = FIFO_SIZE_MAX as usize - num_of_optional_fields;
-        let mut optional_fields = [0, 0];
+        let num_of_optional_header_bytes =
+            self.0.length_field as usize + self.0.address_field as usize;
+        let num_of_optional_footer_bytes =
+            self.0.rx_status_fields as usize * PACKET_STATUS_BYTES as usize;
+        let data_len_max: usize =
+            FIFO_SIZE_MAX as usize - (num_of_optional_header_bytes + num_of_optional_footer_bytes);
+        let mut optional_header: [u8; 2] = [0, 0];
+        let mut optional_footer: [u8; 2] = [0, 0];
         let mut index = 0;
 
         // Validate Length parameter
@@ -571,26 +576,23 @@ where
         if data.len() <= data_len_max {
             self.0.access_fifo(
                 Access::Read,
-                &mut optional_fields[..num_of_optional_fields],
+                &mut optional_header[..num_of_optional_header_bytes],
                 data,
+                &mut optional_footer[..num_of_optional_footer_bytes],
             )?;
 
             if self.0.length_field {
-                *length = Some(optional_fields[index]);
+                *length = Some(optional_header[index]);
                 index += 1;
             }
 
             if self.0.address_field {
-                *address = Some(optional_fields[index]);
+                *address = Some(optional_header[index]);
             }
 
             if self.0.rx_status_fields {
-                *rssi = Some(from_rssi_to_rssi_dbm(data[data.len() - 2]));
-                *lqi = Some(data[data.len() - 1]);
-
-                // Overwrite the last 2 bytes with `0` for the user to avoid confusion with data handling
-                data[data.len() - 2] = 0;
-                data[data.len() - 1] = 0;
+                *rssi = Some(from_rssi_to_rssi_dbm(optional_footer[0]));
+                *lqi = Some(LQI(optional_footer[1]).lqi());
             }
         } else {
             return Err(Error::UserInputError(UserError::ArrayTooLong(data.len())));
@@ -605,9 +607,11 @@ where
         address: &mut Option<u8>,
         data: &mut [u8],
     ) -> Result<(), Error<SpiE>> {
-        let num_of_optional_fields = self.0.length_field as usize + self.0.address_field as usize;
-        let data_len_max: usize = FIFO_SIZE_MAX as usize - num_of_optional_fields;
-        let mut optional_fields = [0, 0];
+        let num_of_optional_header_bytes =
+            self.0.length_field as usize + self.0.address_field as usize;
+        let data_len_max: usize = FIFO_SIZE_MAX as usize - num_of_optional_header_bytes;
+        let mut optional_header: [u8; 2] = [0, 0];
+        let mut optional_footer: [u8; 0] = [];
         let mut index = 0;
 
         // Validate Length parameter
@@ -622,18 +626,19 @@ where
 
         if data.len() <= data_len_max {
             if self.0.length_field {
-                optional_fields[index] = (*length).unwrap();
+                optional_header[index] = (*length).unwrap();
                 index += 1;
             }
 
             if self.0.address_field {
-                optional_fields[index] = (*address).unwrap();
+                optional_header[index] = (*address).unwrap();
             }
 
             self.0.access_fifo(
                 Access::Write,
-                &mut optional_fields[..num_of_optional_fields],
+                &mut optional_header[..num_of_optional_header_bytes],
                 data,
+                &mut optional_footer,
             )?;
         } else {
             return Err(Error::UserInputError(UserError::ArrayTooLong(data.len())));

@@ -15,6 +15,7 @@ use self::registers::*;
 
 pub const FXOSC: u64 = 26_000_000;
 pub const FIFO_SIZE_MAX: u8 = 64;
+pub const PACKET_STATUS_BYTES: u8 = 2;
 const BLANK_BYTE: u8 = 0;
 
 pub struct Cc1101<SPI> {
@@ -55,21 +56,35 @@ where
     pub fn access_fifo(
         &mut self,
         access: access::Access,
-        optional_fields: &mut [u8],
+        optional_header: &mut [u8],
         data: &mut [u8],
+        optional_footer: &mut [u8],
     ) -> Result<(), SpiE> {
         let mut buffer = [MultiByte::FIFO.addr(access, access::Mode::Burst)];
 
-        if optional_fields.is_empty() {
+        if optional_header.is_empty() && optional_footer.is_empty() {
             self.spi.transaction(&mut [
                 Operation::TransferInPlace(&mut buffer),
+                Operation::TransferInPlace(data),
+            ])?;
+        } else if optional_header.is_empty() {
+            self.spi.transaction(&mut [
+                Operation::TransferInPlace(&mut buffer),
+                Operation::TransferInPlace(data),
+                Operation::TransferInPlace(optional_footer),
+            ])?;
+        } else if optional_footer.is_empty() {
+            self.spi.transaction(&mut [
+                Operation::TransferInPlace(&mut buffer),
+                Operation::TransferInPlace(optional_header),
                 Operation::TransferInPlace(data),
             ])?;
         } else {
             self.spi.transaction(&mut [
                 Operation::TransferInPlace(&mut buffer),
-                Operation::TransferInPlace(optional_fields),
+                Operation::TransferInPlace(optional_header),
                 Operation::TransferInPlace(data),
+                Operation::TransferInPlace(optional_footer),
             ])?;
         }
 
